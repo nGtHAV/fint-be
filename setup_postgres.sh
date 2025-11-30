@@ -3,7 +3,7 @@
 # ============================================================
 # Fint Backend - PostgreSQL Local Setup Script
 # ============================================================
-# This script sets up PostgreSQL for local development
+# This script sets up PostgreSQL for local/remote development
 # Run with: ./setup_postgres.sh
 # ============================================================
 
@@ -16,16 +16,41 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Default configuration
-DB_NAME="${DB_NAME:-fint_db}"
-DB_USER="${DB_USER:-fint_user}"
-DB_PASSWORD="${DB_PASSWORD:-fint_password_123}"
-DB_HOST="${DB_HOST:-localhost}"
-DB_PORT="${DB_PORT:-5432}"
-
 echo -e "${BLUE}============================================================${NC}"
 echo -e "${BLUE}       Fint Backend - PostgreSQL Setup Script${NC}"
 echo -e "${BLUE}============================================================${NC}"
+echo ""
+
+# Prompt user for configuration
+echo -e "${BLUE}Please enter database configuration:${NC}"
+echo ""
+
+read -p "Database name [fint_db]: " input_db_name
+DB_NAME="${input_db_name:-fint_db}"
+
+read -p "Database user [fint_user]: " input_db_user
+DB_USER="${input_db_user:-fint_user}"
+
+read -s -p "Database password [fint_password_123]: " input_db_password
+echo ""
+DB_PASSWORD="${input_db_password:-fint_password_123}"
+
+read -p "Database host [localhost]: " input_db_host
+DB_HOST="${input_db_host:-localhost}"
+
+read -p "Database port [5432]: " input_db_port
+DB_PORT="${input_db_port:-5432}"
+
+read -p "Allow remote connections (for TablePlus, etc)? [y/N]: " allow_remote
+ALLOW_REMOTE="${allow_remote:-n}"
+
+echo ""
+echo -e "${GREEN}Configuration:${NC}"
+echo -e "  Database: ${YELLOW}$DB_NAME${NC}"
+echo -e "  User:     ${YELLOW}$DB_USER${NC}"
+echo -e "  Host:     ${YELLOW}$DB_HOST${NC}"
+echo -e "  Port:     ${YELLOW}$DB_PORT${NC}"
+echo -e "  Remote:   ${YELLOW}$ALLOW_REMOTE${NC}"
 echo ""
 
 # Function to check if PostgreSQL is installed
@@ -95,10 +120,6 @@ install_postgres() {
 setup_database() {
     echo ""
     echo -e "${BLUE}Setting up database...${NC}"
-    echo -e "  Database: ${YELLOW}$DB_NAME${NC}"
-    echo -e "  User:     ${YELLOW}$DB_USER${NC}"
-    echo -e "  Password: ${YELLOW}$DB_PASSWORD${NC}"
-    echo ""
     
     # Create user if not exists
     echo -e "${YELLOW}Creating database user...${NC}"
@@ -118,7 +139,12 @@ setup_database() {
         END
         \$\$;" 2>/dev/null || true
     }
-    echo -e "${GREEN}✓ User created or already exists${NC}"
+    
+    # Update password in case user already exists
+    sudo -u postgres psql -c "ALTER USER $DB_USER WITH PASSWORD '$DB_PASSWORD';" 2>/dev/null || \
+        psql -U postgres -c "ALTER USER $DB_USER WITH PASSWORD '$DB_PASSWORD';" 2>/dev/null || true
+    
+    echo -e "${GREEN}✓ User created or updated${NC}"
     
     # Create database if not exists
     echo -e "${YELLOW}Creating database...${NC}"
@@ -132,6 +158,112 @@ setup_database() {
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" 2>/dev/null || \
         psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" 2>/dev/null || true
     echo -e "${GREEN}✓ Privileges granted${NC}"
+}
+
+# Function to configure remote access (for TablePlus, DBeaver, etc.)
+configure_remote_access() {
+    if [[ ! "$ALLOW_REMOTE" =~ ^[Yy]$ ]]; then
+        return 0
+    fi
+    
+    echo ""
+    echo -e "${BLUE}Configuring remote access...${NC}"
+    
+    # Find PostgreSQL config directory
+    PG_VERSION=$(psql --version | grep -oP '\d+' | head -1)
+    PG_CONF_DIR=""
+    
+    # Check common locations
+    if [ -d "/etc/postgresql/$PG_VERSION/main" ]; then
+        PG_CONF_DIR="/etc/postgresql/$PG_VERSION/main"
+    elif [ -d "/var/lib/pgsql/$PG_VERSION/data" ]; then
+        PG_CONF_DIR="/var/lib/pgsql/$PG_VERSION/data"
+    elif [ -d "/var/lib/pgsql/data" ]; then
+        PG_CONF_DIR="/var/lib/pgsql/data"
+    elif [ -d "/usr/local/var/postgres" ]; then
+        PG_CONF_DIR="/usr/local/var/postgres"  # macOS Homebrew
+    elif [ -d "/opt/homebrew/var/postgres" ]; then
+        PG_CONF_DIR="/opt/homebrew/var/postgres"  # macOS M1 Homebrew
+    fi
+    
+    if [ -z "$PG_CONF_DIR" ]; then
+        echo -e "${YELLOW}⚠ Could not find PostgreSQL config directory${NC}"
+        echo -e "${YELLOW}  Please manually configure remote access:${NC}"
+        echo ""
+        echo -e "  1. Edit postgresql.conf and set: ${YELLOW}listen_addresses = '*'${NC}"
+        echo -e "  2. Edit pg_hba.conf and add: ${YELLOW}host all all 0.0.0.0/0 md5${NC}"
+        echo -e "  3. Restart PostgreSQL: ${YELLOW}sudo systemctl restart postgresql${NC}"
+        echo -e "  4. Open firewall port: ${YELLOW}sudo ufw allow 5432/tcp${NC}"
+        return 0
+    fi
+    
+    echo -e "  Config directory: ${YELLOW}$PG_CONF_DIR${NC}"
+    
+    # Backup config files
+    echo -e "${YELLOW}Backing up config files...${NC}"
+    sudo cp "$PG_CONF_DIR/postgresql.conf" "$PG_CONF_DIR/postgresql.conf.backup" 2>/dev/null || true
+    sudo cp "$PG_CONF_DIR/pg_hba.conf" "$PG_CONF_DIR/pg_hba.conf.backup" 2>/dev/null || true
+    
+    # Update postgresql.conf to listen on all interfaces
+    echo -e "${YELLOW}Updating postgresql.conf...${NC}"
+    if grep -q "^listen_addresses" "$PG_CONF_DIR/postgresql.conf" 2>/dev/null; then
+        sudo sed -i "s/^listen_addresses.*/listen_addresses = '*'/" "$PG_CONF_DIR/postgresql.conf"
+    elif grep -q "^#listen_addresses" "$PG_CONF_DIR/postgresql.conf" 2>/dev/null; then
+        sudo sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" "$PG_CONF_DIR/postgresql.conf"
+    else
+        echo "listen_addresses = '*'" | sudo tee -a "$PG_CONF_DIR/postgresql.conf" > /dev/null
+    fi
+    echo -e "${GREEN}✓ postgresql.conf updated (listen_addresses = '*')${NC}"
+    
+    # Update pg_hba.conf to allow remote connections with password
+    echo -e "${YELLOW}Updating pg_hba.conf...${NC}"
+    
+    # Check if remote access line already exists
+    if ! grep -q "host.*all.*all.*0.0.0.0/0.*md5" "$PG_CONF_DIR/pg_hba.conf" 2>/dev/null; then
+        # Add IPv4 remote access
+        echo "# Allow remote connections (added by setup script)" | sudo tee -a "$PG_CONF_DIR/pg_hba.conf" > /dev/null
+        echo "host    all             all             0.0.0.0/0               md5" | sudo tee -a "$PG_CONF_DIR/pg_hba.conf" > /dev/null
+        # Add IPv6 remote access
+        echo "host    all             all             ::/0                    md5" | sudo tee -a "$PG_CONF_DIR/pg_hba.conf" > /dev/null
+    fi
+    echo -e "${GREEN}✓ pg_hba.conf updated (remote access enabled)${NC}"
+    
+    # Restart PostgreSQL
+    echo -e "${YELLOW}Restarting PostgreSQL...${NC}"
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        sudo systemctl restart postgresql
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        brew services restart postgresql@$PG_VERSION 2>/dev/null || brew services restart postgresql
+    fi
+    echo -e "${GREEN}✓ PostgreSQL restarted${NC}"
+    
+    # Configure firewall (Linux only)
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        echo -e "${YELLOW}Configuring firewall...${NC}"
+        if command -v ufw &> /dev/null; then
+            sudo ufw allow $DB_PORT/tcp 2>/dev/null || true
+            echo -e "${GREEN}✓ UFW firewall rule added for port $DB_PORT${NC}"
+        elif command -v firewall-cmd &> /dev/null; then
+            sudo firewall-cmd --permanent --add-port=$DB_PORT/tcp 2>/dev/null || true
+            sudo firewall-cmd --reload 2>/dev/null || true
+            echo -e "${GREEN}✓ firewalld rule added for port $DB_PORT${NC}"
+        else
+            echo -e "${YELLOW}⚠ No firewall detected. Make sure port $DB_PORT is open.${NC}"
+        fi
+    fi
+    
+    echo ""
+    echo -e "${GREEN}============================================================${NC}"
+    echo -e "${GREEN}       Remote Access Configured!${NC}"
+    echo -e "${GREEN}============================================================${NC}"
+    echo ""
+    echo -e "You can now connect from TablePlus/DBeaver using:"
+    echo -e "  Host:     ${YELLOW}$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'your-server-ip')${NC}"
+    echo -e "  Port:     ${YELLOW}$DB_PORT${NC}"
+    echo -e "  Database: ${YELLOW}$DB_NAME${NC}"
+    echo -e "  User:     ${YELLOW}$DB_USER${NC}"
+    echo -e "  Password: ${YELLOW}(the password you entered)${NC}"
+    echo ""
 }
 
 # Function to create .env file
@@ -250,6 +382,9 @@ main() {
     
     # Setup database
     setup_database
+    
+    # Configure remote access if requested
+    configure_remote_access
     
     # Create .env file
     create_env_file

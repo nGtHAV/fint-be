@@ -23,7 +23,7 @@ A Django REST Framework backend API for the Fint Finance Tracker application wit
 ### 1. Create Virtual Environment
 
 ```bash
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate  # Linux/macOS
 # or
 venv\Scripts\activate     # Windows
@@ -76,20 +76,20 @@ FRONTEND_URL=http://localhost:3000
 ### 5. Run Migrations
 
 ```bash
-python manage.py migrate
+python3 manage.py migrate
 ```
 
 ### 6. Seed Default Categories
 
 ```bash
-python seed_data.py
+python3 seed_data.py
 ```
 
 ### 7. Run the Server
 
 **Development:**
 ```bash
-python manage.py runserver 0.0.0.0:5000
+python3 manage.py runserver 0.0.0.0:5000
 ```
 
 **Production with Gunicorn:**
