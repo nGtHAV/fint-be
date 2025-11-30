@@ -24,13 +24,13 @@ if [ "$MODE" = "production" ]; then
     echo "🚀 Starting Fint Backend (Django) in PRODUCTION mode..."
     
     # Run migrations
-    python manage.py migrate --no-input
+    python3 manage.py migrate --no-input
     
     # Collect static files
-    python manage.py collectstatic --no-input
+    python3 manage.py collectstatic --no-input
     
     # Seed data
-    python seed_data.py
+    python3 seed_data.py
     
     # Run with Gunicorn
     gunicorn --config gunicorn.conf.py fint_backend.wsgi:application
@@ -40,11 +40,11 @@ else
     echo "🚀 Starting Fint Backend (Django) in DEVELOPMENT mode..."
     
     # Run migrations
-    python manage.py migrate
+    python3 manage.py migrate
     
     # Seed data
-    python seed_data.py
+    python3 seed_data.py
     
     # Run development server
-    python manage.py runserver 0.0.0.0:5000
+    python3 manage.py runserver 0.0.0.0:5000
 fi

@@ -306,7 +306,7 @@ run_migrations() {
     echo -e "${BLUE}Running Django migrations...${NC}"
     
     if [ -f "manage.py" ]; then
-        python manage.py migrate
+        python3 manage.py migrate
         echo -e "${GREEN}✓ Migrations completed${NC}"
     else
         echo -e "${RED}✗ manage.py not found. Run this script from the project root.${NC}"
@@ -320,7 +320,7 @@ seed_data() {
     echo -e "${BLUE}Seeding default data...${NC}"
     
     if [ -f "seed_data.py" ]; then
-        python seed_data.py
+        python3 seed_data.py
         echo -e "${GREEN}✓ Default data seeded${NC}"
     else
         echo -e "${YELLOW}⚠ seed_data.py not found. Skipping data seeding.${NC}"
@@ -416,7 +416,7 @@ main() {
     echo -e "${GREEN}============================================================${NC}"
     echo ""
     echo -e "You can now start the server with:"
-    echo -e "  ${YELLOW}python manage.py runserver 0.0.0.0:5000${NC}"
+    echo -e "  ${YELLOW}python3 manage.py runserver 0.0.0.0:5000${NC}"
     echo ""
     echo -e "Or for production:"
     echo -e "  ${YELLOW}./start.sh production${NC}"
