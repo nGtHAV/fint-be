@@ -288,7 +288,7 @@ SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))" 2>/de
 DEBUG=True
 
 # CORS Settings (comma-separated origins)
-CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://fint.ngthav.xyz
 
 # Email Configuration (Zoho Mail SSL)
 EMAIL_HOST=smtp.zoho.com
