@@ -291,9 +291,15 @@ DEBUG=True
 CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
 # Email Configuration (Zoho Mail SSL)
-EMAIL_HOST_USER=your-email@zoho.com
-EMAIL_HOST_PASSWORD=your-zoho-app-password
-FRONTEND_URL=http://localhost:3000
+EMAIL_HOST=smtp.zoho.com
+EMAIL_PORT=465
+EMAIL_USE_SSL=True
+EMAIL_HOST_USER=
+EMAIL_HOST_PASSWORD=
+DEFAULT_FROM_EMAIL=noreply@fint.app
+
+# Frontend URL (for password reset links)
+FRONTEND_URL=http://fint.ngthav.xyz
 EOF
     
     echo -e "${GREEN}✓ .env file created${NC}"
