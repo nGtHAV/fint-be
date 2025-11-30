@@ -1,0 +1,25 @@
+# Django and REST Frameworkflask>=3.0.0
+
+django>=5.0.0
+flask-cors>=4.0.0
+djangorestframework>=3.14.0
+flask-bcrypt>=1.0.1
+django-cors-headers>=4.3.0
+pyjwt>=2.8.0
+gunicorn>=21.0.0
+
+# Database
+psycopg2-binary>=2.9.9
+
+# Authentication
+PyJWT>=2.8.0
+
+# Email
+django-environ>=0.11.2
+
+# Production server
+gunicorn>=21.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+Pillow>=10.0.0

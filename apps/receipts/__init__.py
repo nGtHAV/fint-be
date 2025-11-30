@@ -1,0 +1,3 @@
+"""
+Receipts app package
+"""

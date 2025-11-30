@@ -1,0 +1,3 @@
+"""
+Categories app package
+"""
