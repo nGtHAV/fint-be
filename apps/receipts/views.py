@@ -4,7 +4,11 @@ Receipt views
 import base64
 import os
 import uuid
+import csv
+import io
+from datetime import datetime
 from django.conf import settings
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -145,3 +149,86 @@ def receipt_detail(request, receipt_id):
     elif request.method == 'DELETE':
         receipt.delete()
         return Response({'message': 'Receipt deleted successfully'})
+
+
+@api_view(['GET'])
+def export_receipts(request):
+    """Export receipts as CSV"""
+    user = request.user
+    
+    # Optional query parameters for filtering
+    category = request.query_params.get('category')
+    start_date = request.query_params.get('start_date')
+    end_date = request.query_params.get('end_date')
+    format_type = request.query_params.get('format', 'csv')
+    
+    queryset = Receipt.objects.filter(user=user)
+    
+    if category:
+        queryset = queryset.filter(category=category)
+    
+    if start_date:
+        queryset = queryset.filter(date__gte=start_date)
+    
+    if end_date:
+        queryset = queryset.filter(date__lte=end_date)
+    
+    queryset = queryset.order_by('-date')
+    
+    if format_type == 'csv':
+        return export_csv(queryset)
+    elif format_type == 'json':
+        return export_json(queryset)
+    else:
+        return Response({'error': 'Invalid format. Use csv or json'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def export_csv(queryset):
+    """Export receipts as CSV file"""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Write header
+    writer.writerow(['Date', 'Name', 'Category', 'Amount', 'Notes'])
+    
+    # Write data
+    for receipt in queryset:
+        writer.writerow([
+            receipt.date.isoformat() if receipt.date else '',
+            receipt.name,
+            receipt.category,
+            float(receipt.amount),
+            receipt.notes or ''
+        ])
+    
+    # Create response
+    output.seek(0)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f'receipts_export_{timestamp}.csv'
+    
+    response = HttpResponse(output.getvalue(), content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    
+    return response
+
+
+def export_json(queryset):
+    """Export receipts as JSON"""
+    receipts = [r.to_dict() for r in queryset]
+    
+    # Calculate summary
+    total_amount = sum(r['amount'] for r in receipts)
+    categories = {}
+    for r in receipts:
+        cat = r['category']
+        categories[cat] = categories.get(cat, 0) + r['amount']
+    
+    export_data = {
+        'export_date': datetime.now().isoformat(),
+        'total_receipts': len(receipts),
+        'total_amount': total_amount,
+        'by_category': categories,
+        'receipts': receipts
+    }
+    
+    return Response(export_data)

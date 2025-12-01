@@ -13,8 +13,9 @@ urlpatterns = [
     path('api/auth/', include('apps.users.urls')),
     path('api/receipts/', include('apps.receipts.urls')),
     path('api/stats/', include('apps.receipts.stats_urls')),
-    path('api/categories', include('apps.categories.urls')),
+    path('api/categories/', include('apps.users.category_urls')),
     path('api/users/', include('apps.users.profile_urls')),
+    path('api/budgets/', include('apps.users.budget_urls')),
 ]
 
 # Serve uploaded files in development
