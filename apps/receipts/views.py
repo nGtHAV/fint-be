@@ -108,7 +108,34 @@ def create_receipt(request):
         notes=data.get('notes', '')
     )
     
-    return Response({'receipt': receipt.to_dict()}, status=status.HTTP_201_CREATED)
+    # Check budget alerts after adding a receipt
+    alerts_created = check_and_create_budget_alerts(request.user, data['category'])
+    
+    response_data = {'receipt': receipt.to_dict()}
+    if alerts_created:
+        response_data['budget_alerts'] = alerts_created
+    
+    return Response(response_data, status=status.HTTP_201_CREATED)
+
+
+def check_and_create_budget_alerts(user, category=None):
+    """Check all relevant budgets and create alerts if thresholds are met"""
+    from apps.users.models import Budget
+    from apps.users.budget_views import check_budget_alerts
+    
+    alerts_created = []
+    
+    # Get all active budgets for this user
+    budgets = Budget.objects.filter(user=user, is_active=True)
+    
+    for budget in budgets:
+        # Check overall budgets (category=None) and category-specific budgets
+        if budget.category is None or budget.category == category:
+            alert = check_budget_alerts(user, budget)
+            if alert:
+                alerts_created.append(alert.to_dict())
+    
+    return alerts_created
 
 
 @api_view(['GET', 'PUT', 'DELETE'])
@@ -153,7 +180,7 @@ def receipt_detail(request, receipt_id):
 
 @api_view(['GET'])
 def export_receipts(request):
-    """Export receipts as CSV"""
+    """Export receipts as CSV or PDF"""
     user = request.user
     
     # Optional query parameters for filtering
@@ -176,14 +203,16 @@ def export_receipts(request):
     queryset = queryset.order_by('-date')
     
     if format_type == 'csv':
-        return export_csv(queryset)
+        return export_csv(queryset, start_date, end_date)
+    elif format_type == 'pdf':
+        return export_pdf(queryset, start_date, end_date)
     elif format_type == 'json':
         return export_json(queryset)
     else:
-        return Response({'error': 'Invalid format. Use csv or json'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': 'Invalid format. Use csv, pdf, or json'}, status=status.HTTP_400_BAD_REQUEST)
 
 
-def export_csv(queryset):
+def export_csv(queryset, start_date=None, end_date=None):
     """Export receipts as CSV file"""
     output = io.StringIO()
     writer = csv.writer(output)
@@ -192,6 +221,7 @@ def export_csv(queryset):
     writer.writerow(['Date', 'Name', 'Category', 'Amount', 'Notes'])
     
     # Write data
+    total = 0
     for receipt in queryset:
         writer.writerow([
             receipt.date.isoformat() if receipt.date else '',
@@ -200,14 +230,131 @@ def export_csv(queryset):
             float(receipt.amount),
             receipt.notes or ''
         ])
+        total += float(receipt.amount)
+    
+    # Write summary
+    writer.writerow([])
+    writer.writerow(['', '', 'Total:', total, ''])
     
     # Create response
     output.seek(0)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'receipts_export_{timestamp}.csv'
+    
+    # Add date range to filename if specified
+    date_range = ''
+    if start_date and end_date:
+        date_range = f'_{start_date}_to_{end_date}'
+    elif start_date:
+        date_range = f'_from_{start_date}'
+    elif end_date:
+        date_range = f'_to_{end_date}'
+    
+    filename = f'receipts_export{date_range}_{timestamp}.csv'
     
     response = HttpResponse(output.getvalue(), content_type='text/csv')
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+    
+    return response
+
+
+def export_pdf(queryset, start_date=None, end_date=None):
+    """Export receipts as PDF file"""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    
+    # Create PDF buffer
+    buffer = io.BytesIO()
+    
+    # Create document
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=12,
+        textColor=colors.HexColor('#10b981')
+    )
+    elements.append(Paragraph('Fint - Receipt Export', title_style))
+    
+    # Date range subtitle
+    if start_date or end_date:
+        date_text = f"Period: {start_date or 'Beginning'} to {end_date or 'Present'}"
+        elements.append(Paragraph(date_text, styles['Normal']))
+    
+    elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
+    elements.append(Spacer(1, 20))
+    
+    # Table data
+    data = [['Date', 'Name', 'Category', 'Amount', 'Notes']]
+    total = 0
+    
+    for receipt in queryset:
+        data.append([
+            receipt.date.strftime('%Y-%m-%d') if receipt.date else '',
+            receipt.name[:30] + '...' if len(receipt.name) > 30 else receipt.name,
+            receipt.category,
+            f"${float(receipt.amount):.2f}",
+            (receipt.notes or '')[:20] + '...' if receipt.notes and len(receipt.notes) > 20 else (receipt.notes or '')
+        ])
+        total += float(receipt.amount)
+    
+    # Add total row
+    data.append(['', '', '', f"${total:.2f}", 'TOTAL'])
+    
+    # Create table
+    table = Table(data, colWidths=[1.2*inch, 1.8*inch, 1.3*inch, 1*inch, 1.5*inch])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#10b981')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 11),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -2), colors.white),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#f0fdf4')),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 1), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+    ]))
+    elements.append(table)
+    
+    # Add summary
+    elements.append(Spacer(1, 20))
+    summary_text = f"Total Receipts: {len(list(queryset))} | Total Amount: ${total:.2f}"
+    elements.append(Paragraph(summary_text, styles['Normal']))
+    
+    # Build PDF
+    doc.build(elements)
+    
+    # Create response
+    buffer.seek(0)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    date_range = ''
+    if start_date and end_date:
+        date_range = f'_{start_date}_to_{end_date}'
+    elif start_date:
+        date_range = f'_from_{start_date}'
+    elif end_date:
+        date_range = f'_to_{end_date}'
+    
+    filename = f'receipts_export{date_range}_{timestamp}.pdf'
+    
+    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Access-Control-Expose-Headers'] = 'Content-Disposition'
     
     return response
 
